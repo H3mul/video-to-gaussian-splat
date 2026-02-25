@@ -7,6 +7,7 @@ from shutil import copy2, move
 
 def rename_image_folder_if_needed(image_path):
     # Rename the image_path folder to "source" if it's named "input" or "images"
+    # 
     parent_dir = os.path.abspath(os.path.join(image_path, os.pardir))
     current_folder_name = os.path.basename(os.path.normpath(image_path))
 
