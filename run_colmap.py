@@ -116,7 +116,7 @@ if __name__ == "__main__":
                         help="Type of matcher to use (default: sequential_matcher).")
     parser.add_argument('--interval', type=int, default=1, help="Interval of images to use (default: 1, meaning all images).")
     parser.add_argument('--model_type', default='3dgs', choices=['3dgs', 'nerfstudio'],
-                        help="Model type to run. '3dgs' includes undistortion, 'nerfstudio' skips undistortion.")
+                        help="Model type to run. '3dgs' (default) includes undistortion, 'nerfstudio' skips undistortion.")
 
     args = parser.parse_args()
 
