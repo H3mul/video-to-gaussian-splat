@@ -54,9 +54,9 @@ def run_colmap(image_path, matcher_type, interval, model_type):
 
     # Feature extraction with enforced single camera model and PINHOLE model
     commands = [
-        f"colmap feature_extractor --image_path {image_path} --database_path {database_path} --ImageReader.single_camera 1 --ImageReader.camera_model PINHOLE",
-        f"colmap {matcher_type} --database_path {database_path}",
-        f"glomap mapper --database_path {database_path} --image_path {image_path} --output_path {os.path.join(distorted_folder, 'sparse')}"
+        f"colmap feature_extractor --image_path \"{image_path}\" --database_path \"{database_path}\" --ImageReader.single_camera 1 --ImageReader.camera_model PINHOLE",
+        f"colmap {matcher_type} --database_path \"{database_path}\"",
+        f"glomap mapper --database_path \"{database_path}\" --image_path \"{image_path}\" --output_path \"{sparse_folder}\""
         
         # f"colmap global_mapper --database_path {database_path} --image_path {image_path} --output_path {os.path.join(distorted_folder, 'sparse')} --TrackEstablishment.max_num_tracks 5000",
     ]
@@ -76,9 +76,9 @@ def run_colmap(image_path, matcher_type, interval, model_type):
         if model_type == '3dgs':
             img_undist_cmd = (
                 f"colmap image_undistorter "
-                f"--image_path {image_path} "
-                f"--input_path {os.path.join(distorted_folder, 'sparse/0')} "  # Use the sparse/0 in distorted
-                f"--output_path {parent_dir} "  # Output undistorted results to the top-level folder
+                f"--image_path \"{image_path}\" "
+                f"--input_path \"{sparse_zero_folder}\" "  # Use the sparse/0 in distorted
+                f"--output_path \"{parent_dir}\" "  # Output undistorted results to the top-level folder
                 f"--output_type COLMAP"
             )
             log_file.write(f"Running command: {img_undist_cmd}\n")
