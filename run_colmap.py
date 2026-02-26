@@ -91,7 +91,7 @@ def extract_frames_from_video(video_path, image_path, fps):
     
     execute_task(task)
 
-def run_colmap(image_path, matcher_type, interval, model_type):
+def run_colmap(image_path, matcher_type, interval, model_type, brush_steps, brush_export_every):
     image_path = os.path.abspath(image_path)
     
     # Rename the image_path folder if needed
@@ -162,8 +162,8 @@ def run_colmap(image_path, matcher_type, interval, model_type):
         name="Start Brush training",
         command=(
             "brush_app"
-            " --total-steps 5000"
-            " --export-every 1000"
+            f" --total-steps {brush_steps}"
+            f" --export-every {brush_export_every}"
             f" --export-path \"{brush_folder}\""
             f" \"{parent_dir}\""
         ),
@@ -192,12 +192,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run COLMAP with specified image path and matcher type.")
     parser.add_argument('--image_path', type=str, default=None, help="Path to the images folder. Required if --video is not provided.")
     parser.add_argument('--video', type=str, default=None, help="Path to a video file to extract frames from. If provided without --image_path, frames will be extracted to 'frames' directory in the same location as the video.")
-    parser.add_argument('--fps', type=int, default=15, help="Frames per second for video extraction (default: 15). Only used if --video is provided.")
+    parser.add_argument('--fps', type=int, default=10, help="Frames per second for video extraction (default: 10). Only used if --video is provided.")
     parser.add_argument('--matcher_type', default='sequential_matcher', choices=['sequential_matcher', 'exhaustive_matcher'],
                         help="Type of matcher to use (default: sequential_matcher).")
     parser.add_argument('--interval', type=int, default=1, help="Interval of images to use (default: 1, meaning all images).")
     parser.add_argument('--model_type', default='3dgs', choices=['3dgs', 'nerfstudio'],
                         help="Model type to run. '3dgs' (default) includes undistortion, 'nerfstudio' skips undistortion.")
+    parser.add_argument('--brush-steps', type=int, default=5000, help="Total training steps for brush (default: 5000).")
+    parser.add_argument('--brush-export-every', type=int, default=1000, help="Export model every N steps in brush training (default: 1000).")
 
     args = parser.parse_args()
 
@@ -214,4 +216,4 @@ if __name__ == "__main__":
             image_path = os.path.join(video_dir, 'frames')
         extract_frames_from_video(args.video, image_path, args.fps)
 
-    run_colmap(image_path, args.matcher_type, args.interval, args.model_type)
+    run_colmap(image_path, args.matcher_type, args.interval, args.model_type, args.brush_steps, args.brush_export_every)
