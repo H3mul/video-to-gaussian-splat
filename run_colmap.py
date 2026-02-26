@@ -6,6 +6,7 @@ import datetime
 from shutil import copy2, move
 from dataclasses import dataclass
 from typing import List, Optional
+from pathlib import Path
 
 @dataclass
 class Task:
@@ -69,6 +70,27 @@ def execute_task(task: Task) -> bool:
         print(f"Task '{task.name}' failed with error: {e}")
         raise
 
+def extract_frames_from_video(video_path, image_path, fps):
+    """Extract frames from a video file using ffmpeg."""
+    video_path = os.path.abspath(video_path)
+    image_path = os.path.abspath(image_path)
+    
+    # Create image directory if it doesn't exist
+    os.makedirs(image_path, exist_ok=True)
+    
+    # Build ffmpeg command
+    frame_pattern = os.path.join(image_path, 'frame%04d.png')
+    command = f'ffmpeg -i "{video_path}" -vf "fps={fps}" "{frame_pattern}"'
+    
+    # Create and execute task
+    task = Task(
+        name="Extract Frames from Video",
+        command=command,
+        skip_paths=[image_path]
+    )
+    
+    execute_task(task)
+
 def run_colmap(image_path, matcher_type, interval, model_type):
     image_path = os.path.abspath(image_path)
     
@@ -115,7 +137,7 @@ def run_colmap(image_path, matcher_type, interval, model_type):
                 f" --image_path \"{image_path}\""
                 f" --output_path \"{sparse_folder}\""
             ),
-            skip_paths=[]
+            skip_paths=[sparse_zero_folder]
         ),
     ]
     
@@ -124,14 +146,29 @@ def run_colmap(image_path, matcher_type, interval, model_type):
         tasks.append(Task(
             name="Image Undistortion",
             command=(
-                f"colmap image_undistorter "
-                f" --image_path \"{image_path}\" "
-                f" --input_path \"{sparse_zero_folder}\" "
-                f" --output_path \"{parent_dir}\" "
+                f"colmap image_undistorter"
+                f" --image_path \"{image_path}\""
+                f" --input_path \"{sparse_zero_folder}\""
+                f" --output_path \"{parent_dir}\""
                 f" --output_type COLMAP"
             ),
             skip_paths=[os.path.join(parent_dir, 'images'), os.path.join(sparse_folder, 'frames.bin')]
         ))
+        
+    brush_folder = os.path.join(parent_dir, 'brush')
+    os.makedirs(brush_folder, exist_ok=True)
+
+    tasks.append(Task(
+        name="Start Brush training",
+        command=(
+            "brush_app"
+            " --total-steps 5000"
+            " --export-every 1000"
+            f" --export-path \"{brush_folder}\""
+            f" \"{parent_dir}\""
+        ),
+        skip_paths=[os.path.join(brush_folder, '*.ply')]
+    ))
 
     # Execute all tasks
     for task in tasks:
@@ -153,7 +190,9 @@ def run_colmap(image_path, matcher_type, interval, model_type):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run COLMAP with specified image path and matcher type.")
-    parser.add_argument('--image_path', required=True, help="Path to the images folder.")
+    parser.add_argument('--image_path', type=str, default=None, help="Path to the images folder. Required if --video is not provided.")
+    parser.add_argument('--video', type=str, default=None, help="Path to a video file to extract frames from. If provided without --image_path, frames will be extracted to 'frames' directory in the same location as the video.")
+    parser.add_argument('--fps', type=int, default=15, help="Frames per second for video extraction (default: 15). Only used if --video is provided.")
     parser.add_argument('--matcher_type', default='sequential_matcher', choices=['sequential_matcher', 'exhaustive_matcher'],
                         help="Type of matcher to use (default: sequential_matcher).")
     parser.add_argument('--interval', type=int, default=1, help="Interval of images to use (default: 1, meaning all images).")
@@ -162,4 +201,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    run_colmap(args.image_path, args.matcher_type, args.interval, args.model_type)
+    # Validate that either image_path or video is provided
+    if not args.image_path and not args.video:
+        parser.error("Either --image_path or --video must be provided.")
+
+    # Determine image_path
+    image_path = args.image_path
+    if args.video:
+        if not image_path:
+            # Default to 'frames' directory in the same location as the video
+            video_dir = os.path.dirname(os.path.abspath(args.video))
+            image_path = os.path.join(video_dir, 'frames')
+        extract_frames_from_video(args.video, image_path, args.fps)
+
+    run_colmap(image_path, args.matcher_type, args.interval, args.model_type)
