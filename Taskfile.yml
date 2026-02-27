@@ -3,136 +3,54 @@ version: '3'
 vars:
   # Input/Output directories
   IMAGE_PATH: "{{if .IMAGE_PATH}}{{.IMAGE_PATH}}{{else}}{{.ROOT_DIR}}/frames{{end}}"
-  PARENT_DIR: "{{dir .IMAGE_PATH}}"
-  DISTORTED_DIR: "{{.PARENT_DIR}}/distorted"
-  SPARSE_DIR: "{{.PARENT_DIR}}/sparse"
+  VIDEO: "{{.VIDEO}}"
+  # Fix: Ensure PARENT_DIR is calculated correctly from VIDEO or IMAGE_PATH
+  PARENT_DIR: 
+    sh: |
+      if [ -n "{{.VIDEO}}" ]; then echo $(dirname "{{.VIDEO}}"); else echo $(dirname "{{.IMAGE_PATH}}"); fi
+  OUTPUT_DIR: "{{.PARENT_DIR}}/gaussian-splat-generation"
+  DISTORTED_DIR: "{{.OUTPUT_DIR}}/distorted"
+  SPARSE_DIR: "{{.OUTPUT_DIR}}/sparse_initial" # Renamed to avoid collision with undistorted output
   SPARSE_ZERO_DIR: "{{.SPARSE_DIR}}/0"
-  BRUSH_DIR: "{{.PARENT_DIR}}/brush"
-  INPUT_DIR: "{{.PARENT_DIR}}/input"
+  SPARSE_ZERO_REFINED_DIR: "{{.OUTPUT_DIR}}/sparse_refined/0"
+  BRUSH_DIR: "{{.OUTPUT_DIR}}/brush"
+  UNDISTORTED_IMAGES_DIR: "{{.OUTPUT_DIR}}/images"
 
   # COLMAP parameters
-  MATCHER_TYPE: "{{.MATCHER_TYPE | default \"sequential_matcher\"}}"
+  MATCHER_TYPE: "{{.MATCHER_TYPE | default \"exhaustive_matcher\"}}"
   MODEL_TYPE: "{{.MODEL_TYPE | default \"3dgs\"}}"
-  COLMAP_CAMERA_MODEL: "{{.COLMAP_CAMERA_MODEL | default \"PINHOLE\"}}"
+  COLMAP_CAMERA_MODEL: "{{.COLMAP_CAMERA_MODEL | default \"OPENCV\"}}"
 
   # Brush parameters
-  BRUSH_STEPS: "{{.BRUSH_STEPS | default 5000}}"
+  BRUSH_STEPS: "{{.BRUSH_STEPS | default 7000}}" # Increased to 7k for better texture settle
   BRUSH_EXPORT_EVERY: "{{.BRUSH_EXPORT_EVERY | default 1000}}"
 
   # Video extraction parameters
-  VIDEO: "{{.VIDEO}}"
   FPS: "{{.FPS | default 10}}"
 
   # Database and output paths
   DATABASE_PATH: "{{.DISTORTED_DIR}}/database.db"
-  UNDISTORTED_IMAGES_DIR: "{{.PARENT_DIR}}/images"
-  FRAMES_BIN: "{{.SPARSE_DIR}}/frames.bin"
 
 tasks:
-  default:
-    desc: "Display help information and customizable variables"
-    silent: true
-    cmds:
-      - |
-        cat << 'EOF'
-
-        ╔════════════════════════════════════════════════════════════════════════════╗
-        ║                   COLMAP PIPELINE - Available Variables                    ║
-        ╚════════════════════════════════════════════════════════════════════════════╝
-
-        INPUT/OUTPUT VARIABLES (Required either one or the other):
-          VIDEO                   Path to video file for frame extraction.
-                                  Frames will be extracted to IMAGE_PATH directory ({{.IMAGE_PATH}})
-                                  Current: {{.VIDEO}}
-          IMAGE_PATH              Path to images directory
-                                  Current: {{.IMAGE_PATH}}
-
-        VIDEO EXTRACTION OPTIONS:
-          FPS                     Frames per second for video extraction
-                                  Current: {{.FPS}}
-
-        COLMAP PROCESSING OPTIONS:
-          MATCHER_TYPE            Type of feature matcher
-                                  Options: sequential_matcher, exhaustive_matcher
-                                  Current: {{.MATCHER_TYPE}}
-          MODEL_TYPE              Model type for reconstruction
-                                  Options: 3dgs, nerfstudio
-                                  Current: {{.MODEL_TYPE}}
-          COLMAP_CAMERA_MODEL     Camera model for feature extraction: https://colmap.github.io/cameras.html
-                                  Current: {{.COLMAP_CAMERA_MODEL}}
-
-        BRUSH TRAINING OPTIONS:
-          BRUSH_STEPS             Total training steps for brush
-                                  Current: {{.BRUSH_STEPS}}
-          BRUSH_EXPORT_EVERY      Export model every N steps
-                                  Current: {{.BRUSH_EXPORT_EVERY}}
-                                  
-        EOF
-        
-      - '{{.TASK_EXE}} --list --taskfile "{{.TASKFILE}}" --dir "{{.ROOT_DIR}}"'
-
-  print-dirs:
-    desc: "Print all directory paths for debugging"
-    silent: true
-    cmds:
-      - |
-        cat << 'EOF'
-
-        ╔════════════════════════════════════════════════════════════════════════════╗
-        ║                      DIRECTORY PATHS - DEBUG INFO                          ║
-        ╚════════════════════════════════════════════════════════════════════════════╝
-
-        DIRECTORY VARIABLES:
-          PARENT_DIR:              {{.PARENT_DIR}}
-          IMAGE_PATH:              {{.IMAGE_PATH}}
-          DISTORTED_DIR:           {{.DISTORTED_DIR}}
-          SPARSE_DIR:              {{.SPARSE_DIR}}
-          SPARSE_ZERO_DIR:         {{.SPARSE_ZERO_DIR}}
-          BRUSH_DIR:               {{.BRUSH_DIR}}
-          INPUT_DIR:               {{.INPUT_DIR}}
-          UNDISTORTED_IMAGES_DIR:  {{.UNDISTORTED_IMAGES_DIR}}
-
-        FILE PATHS:
-          DATABASE_PATH:           {{.DATABASE_PATH}}
-          FRAMES_BIN:              {{.FRAMES_BIN}}
-
-        OTHER VARIABLES:
-          VIDEO:                   {{.VIDEO}}
-          FPS:                     {{.FPS}}
-          MATCHER_TYPE:            {{.MATCHER_TYPE}}
-          MODEL_TYPE:              {{.MODEL_TYPE}}
-          COLMAP_CAMERA_MODEL:     {{.COLMAP_CAMERA_MODEL}}
-          BRUSH_STEPS:             {{.BRUSH_STEPS}}
-          BRUSH_EXPORT_EVERY:      {{.BRUSH_EXPORT_EVERY}}
-
-        EOF
-
   all:
-    desc: "Run full COLMAP pipeline"
+    desc: "Run full pipeline to training"
     cmds:
-      - task: mapping
-      - task: undistort
       - task: brush-training
-      - task: finalize
 
   extract-video:
     desc: "Extract frames from video file"
     status:
-          - 'test -z "{{.VIDEO}}"'
+      - "test -z '{{.VIDEO}}' || [ $(ls -1 {{.IMAGE_PATH}}/*.png 2>/dev/null | wc -l) -gt 0 ]"
     cmds:
       - mkdir -p "{{.IMAGE_PATH}}"
       - ffmpeg -i "{{.VIDEO}}" -vf "fps={{.FPS}}" "{{.IMAGE_PATH}}/frame%04d.png"
 
   feature-extraction:
-    desc: "Extract features from images using COLMAP"
-    deps:
-      - extract-video
-    status:
-      - test -f "{{.DATABASE_PATH}}"
-    generates:
-      - "{{.DATABASE_PATH}}"
+    desc: "Extract features using OPENCV model for Pixel 10"
+    deps: [extract-video]
+    generates: ["{{.DATABASE_PATH}}"]
     cmds:
-      - mkdir -p "{{dir .DATABASE_PATH}}"
+      - mkdir -p "{{.DISTORTED_DIR}}"
       - |
         colmap feature_extractor \
           --image_path "{{.IMAGE_PATH}}" \
@@ -141,24 +59,17 @@ tasks:
           --ImageReader.camera_model "{{.COLMAP_CAMERA_MODEL}}"
 
   feature-matching:
-    desc: "Match features across images"
-    deps:
-      - feature-extraction
-    sources:
-      - "{{.DATABASE_PATH}}"
+    desc: "Match features"
+    deps: [feature-extraction]
+    sources: ["{{.DATABASE_PATH}}"]
     cmds:
       - colmap {{.MATCHER_TYPE}} --database_path "{{.DATABASE_PATH}}"
 
   mapping:
-    desc: "Build 3D model using glomap mapper"
-    deps:
-      - feature-matching
-    sources:
-      - "{{.DATABASE_PATH}}"
-    generates:
-      - "{{.SPARSE_ZERO_DIR}}/cameras.bin"
-      - "{{.SPARSE_ZERO_DIR}}/images.bin"
-      - "{{.SPARSE_ZERO_DIR}}/points3D.bin"
+    desc: "Build initial sparse model"
+    deps: [feature-matching]
+    sources: ["{{.DATABASE_PATH}}"]
+    generates: ["{{.SPARSE_ZERO_DIR}}/points3D.bin"]
     cmds:
       - mkdir -p "{{.SPARSE_DIR}}"
       - |
@@ -166,31 +77,57 @@ tasks:
           --database_path "{{.DATABASE_PATH}}" \
           --image_path "{{.IMAGE_PATH}}" \
           --output_path "{{.SPARSE_DIR}}"
+      - |
+        if [ -f "{{.SPARSE_DIR}}/cameras.bin" ]; then
+          mkdir -p "{{.SPARSE_ZERO_DIR}}"
+          mv "{{.SPARSE_DIR}}/"*.bin "{{.SPARSE_ZERO_DIR}}/"
+        fi
+  
+  bundle-adjustment:
+    desc: "Refine camera poses and distortion"
+    deps: [mapping]
+    sources: ["{{.SPARSE_ZERO_DIR}}/points3D.bin"]
+    generates: ["{{.SPARSE_ZERO_REFINED_DIR}}/points3D.bin"]
+    cmds:
+      - mkdir -p "{{.SPARSE_ZERO_REFINED_DIR}}"
+      - |
+        colmap bundle_adjuster \
+          --input_path "{{.SPARSE_ZERO_DIR}}" \
+          --output_path "{{.SPARSE_ZERO_REFINED_DIR}}" \
+          --BundleAdjustment.refine_focal_length 1 \
+          --BundleAdjustment.refine_extra_params 1 \
+          --BundleAdjustment.refine_extrinsics 1
+          
+  ply-model:
+    desc: "Convert refined model to PLY for seeding"
+    deps: [bundle-adjustment]
+    sources: ["{{.SPARSE_ZERO_REFINED_DIR}}/points3D.bin"]
+    generates: ["{{.SPARSE_ZERO_REFINED_DIR}}/points3D.ply"]
+    cmds:
+      - |
+        colmap model_converter \
+          --input_path "{{.SPARSE_ZERO_REFINED_DIR}}" \
+          --output_path "{{.SPARSE_ZERO_REFINED_DIR}}" \
+          --output_type PLY
 
-  undistort:
-    desc: "Undistort images (3dgs model only)"
+  undistorted-dataset:
+    desc: "Create PINHOLE dataset from refined OPENCV params"
+    deps: [bundle-adjustment]
+    sources: ["{{.SPARSE_ZERO_REFINED_DIR}}/points3D.bin"]
+    generates: ["{{.UNDISTORTED_IMAGES_DIR}}/frame0001.png"]
     if: "test \"{{.MODEL_TYPE}}\" = \"3dgs\""
-    generates:
-      - "{{.PARENT_DIR}}/run-colmap-photometric.sh"
-      - "{{.PARENT_DIR}}/run-colmap-geometric.sh"
     cmds:
       - mkdir -p "{{.UNDISTORTED_IMAGES_DIR}}"
       - |
         colmap image_undistorter \
           --image_path "{{.IMAGE_PATH}}" \
-          --input_path "{{.SPARSE_ZERO_DIR}}" \
-          --output_path "{{.PARENT_DIR}}" \
+          --input_path "{{.SPARSE_ZERO_REFINED_DIR}}" \
+          --output_path "{{.OUTPUT_DIR}}" \
           --output_type COLMAP
 
   brush-training:
-    desc: "Train brush model"
-    deps:
-      - mapping
-      - undistort
-    sources:
-      - "{{.SPARSE_ZERO_DIR}}/*"
-    generates:
-      - "{{.BRUSH_DIR}}/*"
+    desc: "Train final Gaussian Splat"
+    deps: [ply-model, undistorted-dataset]
     cmds:
       - mkdir -p "{{.BRUSH_DIR}}"
       - |
@@ -198,39 +135,9 @@ tasks:
           --total-steps {{.BRUSH_STEPS}} \
           --export-every {{.BRUSH_EXPORT_EVERY}} \
           --export-path "{{.BRUSH_DIR}}" \
-          "{{.PARENT_DIR}}"
-
-  finalize:
-    desc: "Move binary files to sparse/0 directory"
-    cmds:
-      - mkdir -p "{{.SPARSE_ZERO_DIR}}"
-      - cmd: test -f "{{.SPARSE_DIR}}/cameras.bin" && mv "{{.SPARSE_DIR}}/cameras.bin" "{{.SPARSE_ZERO_DIR}}/" || true
-        ignore_error: true
-      - cmd: test -f "{{.SPARSE_DIR}}/images.bin" && mv "{{.SPARSE_DIR}}/images.bin" "{{.SPARSE_ZERO_DIR}}/" || true
-        ignore_error: true
-      - cmd: test -f "{{.SPARSE_DIR}}/points3D.bin" && mv "{{.SPARSE_DIR}}/points3D.bin" "{{.SPARSE_ZERO_DIR}}/" || true
-        ignore_error: true
-    status:
-      - test -f "{{.SPARSE_ZERO_DIR}}/cameras.bin"
-      - test -f "{{.SPARSE_ZERO_DIR}}/images.bin"
-      - test -f "{{.SPARSE_ZERO_DIR}}/points3D.bin"
-
-  extract-video-only:
-    desc: "Extract frames from video only (without COLMAP)"
-    cmds:
-      - mkdir -p "{{.IMAGE_PATH}}"
-      - ffmpeg -i "{{.VIDEO}}" -vf "fps={{.FPS}}" "{{.IMAGE_PATH}}/frame%04d.png"
-    preconditions:
-      - sh: "test -n \"{{.VIDEO}}\""
-        msg: "VIDEO variable must be set"
-    generates:
-      - "{{.IMAGE_PATH}}/frame0001.png"
+          "{{.OUTPUT_DIR}}"
 
   clean:
     desc: "Remove generated directories"
     cmds:
-      - rm -rf "{{.DISTORTED_DIR}}"
-      - rm -rf "{{.SPARSE_DIR}}"
-      - rm -rf "{{.BRUSH_DIR}}"
-      - rm -rf "{{.UNDISTORTED_IMAGES_DIR}}"
-      - rm -rf "{{.INPUT_DIR}}"
+      - rm -rf "{{.OUTPUT_DIR}}"
