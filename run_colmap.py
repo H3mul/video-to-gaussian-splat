@@ -86,7 +86,7 @@ def extract_frames_from_video(video_path, image_path, fps):
     task = Task(
         name="Extract Frames from Video",
         command=command,
-        skip_paths=[image_path]
+        skip_paths=[os.path.join(image_path,'frame0001.png')]
     )
     
     execute_task(task)
