@@ -91,7 +91,7 @@ def extract_frames_from_video(video_path, image_path, fps):
     
     execute_task(task)
 
-def run_colmap(image_path, matcher_type, interval, model_type, brush_steps, brush_export_every):
+def run_colmap(image_path, matcher_type, interval, model_type, brush_steps, brush_export_every, colmap_camera_model):
     image_path = os.path.abspath(image_path)
     
     # Rename the image_path folder if needed
@@ -120,7 +120,7 @@ def run_colmap(image_path, matcher_type, interval, model_type, brush_steps, brus
                 f" --image_path \"{image_path}\" "
                 f" --database_path \"{database_path}\""
                 f" --ImageReader.single_camera 1"
-                f" --ImageReader.camera_model PINHOLE"
+                f" --ImageReader.camera_model {colmap_camera_model}"
             ),
             skip_paths=[database_path]
         ),
@@ -200,6 +200,7 @@ if __name__ == "__main__":
                         help="Model type to run. '3dgs' (default) includes undistortion, 'nerfstudio' skips undistortion.")
     parser.add_argument('--brush-steps', type=int, default=5000, help="Total training steps for brush (default: 5000).")
     parser.add_argument('--brush-export-every', type=int, default=1000, help="Export model every N steps in brush training (default: 1000).")
+    parser.add_argument('--colmap-camera-model', type=str, default='PINHOLE', help="Camera model for COLMAP feature extraction (default: PINHOLE).")
 
     args = parser.parse_args()
 
@@ -216,4 +217,4 @@ if __name__ == "__main__":
             image_path = os.path.join(video_dir, 'frames')
         extract_frames_from_video(args.video, image_path, args.fps)
 
-    run_colmap(image_path, args.matcher_type, args.interval, args.model_type, args.brush_steps, args.brush_export_every)
+    run_colmap(image_path, args.matcher_type, args.interval, args.model_type, args.brush_steps, args.brush_export_every, args.colmap_camera_model)
